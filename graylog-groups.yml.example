@@ -1,0 +1,35 @@
+ldap:
+  host: ldap.example.org
+  port: 636
+  tls: yes  # or no / starttls
+  cachain: /path/to/ca/chain.pem
+  #bind_user:
+  #bind_password:
+  member_fields:
+    - member
+    - uniqueMember
+    - memberUid
+graylog:
+  api_base: https://graylog.example.org/api
+  username: admin
+  password: drowssap
+  delete_accounts: false
+mapping:
+  cn=g1,ou=groups,dc=example,dc=org:
+    roles:
+      - Reader
+    privileges:
+      - type: dashboard
+        id: 12345
+        level: read
+      - type: stream
+        id: 12345
+        level: read
+  cn=g2,ou=groups,dc=example,dc=org:
+    roles:
+      - Event Definition Creator
+      - Event Notification Creator
+    privileges:
+      - type: dashboard
+        id: 12345
+        level: write
