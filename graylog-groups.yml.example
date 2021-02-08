@@ -17,6 +17,9 @@ ldap:
   # connection. Defaults to "no".
   tls: yes
 
+  # Skip server certificate check. Defaults to false.
+  tls_skip_verify: false
+
   # CA certificate chain. Can be omitted if the systems' trusted CAs must be
   # used, or if no TLS is being used.
   cachain: /path/to/ca/chain.pem

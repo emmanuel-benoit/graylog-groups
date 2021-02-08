@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,13 +24,15 @@ type (
 
 	// LDAP server configuration
 	LdapConfig struct {
-		Host         string
-		Port         uint16
-		Tls          string
-		CaChain      string
-		BindUser     string   `yaml:"bind_user"`
-		BindPassword string   `yaml:"bind_password"`
-		MemberFields []string `yaml:"member_fields"`
+		Host           string
+		Port           uint16
+		Tls            string
+		TlsNoVerify    bool `yaml:"tls_skip_verify"`
+		TlsAllowCnOnly bool `yaml:"tls_allow_cn_only"`
+		CaChain        string
+		BindUser       string   `yaml:"bind_user"`
+		BindPassword   string   `yaml:"bind_password"`
+		MemberFields   []string `yaml:"member_fields"`
 	}
 
 	// Graylog server configuration
@@ -231,29 +234,48 @@ func getGroupMembers(group string, conn *ldap.Conn, fields []string) (members []
 	return
 }
 
-// Read the list of group members from the LDAP server for all groups in the mapping section.
-func readLdapGroups(configuration Configuration) (groups GroupMembers) {
-	var scheme string
-	if configuration.Ldap.Tls == "yes" {
-		scheme = "ldaps"
+// Establish a connection to the LDAP server
+func getLdapConnection(cfg LdapConfig) (conn *ldap.Conn) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: cfg.TlsNoVerify,
+	}
+	if cfg.Tls != "no" && cfg.CaChain != "" {
+		data, err := ioutil.ReadFile(cfg.CaChain)
+		if err != nil {
+			log.Fatalf("failed to read CA certificate chain from %s", cfg.CaChain)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(data) {
+			log.Fatalf("could not add CA certificates from %s", cfg.CaChain)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	var err error
+	dest := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	if cfg.Tls == "yes" {
+		conn, err = ldap.DialTLS("tcp", dest, tlsConfig)
 	} else {
-		scheme = "ldap"
+		conn, err = ldap.Dial("tcp", dest)
 	}
-	url := fmt.Sprintf("%s://%s:%d", scheme, configuration.Ldap.Host, configuration.Ldap.Port)
-
-	conn, err := ldap.DialURL(url)
 	if err != nil {
-		log.Fatalf("failed to connect to LDAP server %s: %v", configuration.Ldap.Host, err)
+		log.Fatalf("failed to connect to LDAP server %s: %v", cfg.Host, err)
 	}
-	defer conn.Close()
 
-	if configuration.Ldap.Tls == "starttls" {
-		tlsConfig := tls.Config{}
-		// FIXME missing support for CA chain
-		if err := conn.StartTLS(&tlsConfig); err != nil {
-			log.Fatalf("LDAP server %s, StartTLS failed: %v", configuration.Ldap.Host, err)
+	if cfg.Tls == "starttls" {
+		err = conn.StartTLS(tlsConfig)
+		if err != nil {
+			conn.Close()
+			log.Fatalf("LDAP server %s, StartTLS failed: %v", cfg.Host, err)
 		}
 	}
+	return
+}
+
+// Read the list of group members from the LDAP server for all groups in the mapping section.
+func readLdapGroups(configuration Configuration) (groups GroupMembers) {
+	conn := getLdapConnection(configuration.Ldap)
+	defer conn.Close()
 
 	if configuration.Ldap.BindUser != "" {
 		err := conn.Bind(configuration.Ldap.BindUser, configuration.Ldap.BindPassword)
