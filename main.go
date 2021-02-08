@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bitfield/script"
 	"github.com/go-ldap/ldap"
 	"gopkg.in/yaml.v2"
 )
@@ -116,7 +115,7 @@ func loadConfiguration() (configuration Configuration) {
 	} else {
 		cfgFile = os.Args[1]
 	}
-	cfgData, err := script.File(cfgFile).Bytes()
+	cfgData, err := ioutil.ReadFile(cfgFile)
 	if err != nil {
 		log.Fatalf("could not load configuration: %v", err)
 	}
