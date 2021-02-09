@@ -210,30 +210,6 @@ func usernameFromMember(member string) string {
 	return member[eqPos+1 : commaPos]
 }
 
-// Read the list of members from a LDAP group
-func getGroupMembers(group string, conn *ldap.Conn, fields []string) (members []string) {
-	req := ldap.NewSearchRequest(group, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 0, false, "(objectClass=*)", fields, nil)
-	res, err := conn.Search(req)
-	if err != nil {
-		log.Fatalf("LDAP search for %s: %v", group, err)
-	}
-
-	for _, entry := range res.Entries {
-		for _, attr := range fields {
-			values := entry.GetAttributeValues(attr)
-			if len(values) == 0 {
-				continue
-			}
-			members = make([]string, len(values))
-			for i, value := range values {
-				members[i] = usernameFromMember(value)
-			}
-			break
-		}
-	}
-	return
-}
-
 // Establish a connection to the LDAP server
 func getLdapConnection(cfg LdapConfig) (conn *ldap.Conn) {
 	tlsConfig := &tls.Config{
@@ -267,6 +243,30 @@ func getLdapConnection(cfg LdapConfig) (conn *ldap.Conn) {
 		if err != nil {
 			conn.Close()
 			log.Fatalf("LDAP server %s, StartTLS failed: %v", cfg.Host, err)
+		}
+	}
+	return
+}
+
+// Read the list of members from a LDAP group
+func getGroupMembers(group string, conn *ldap.Conn, fields []string) (members []string) {
+	req := ldap.NewSearchRequest(group, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 0, false, "(objectClass=*)", fields, nil)
+	res, err := conn.Search(req)
+	if err != nil {
+		log.Fatalf("LDAP search for %s: %v", group, err)
+	}
+
+	for _, entry := range res.Entries {
+		for _, attr := range fields {
+			values := entry.GetAttributeValues(attr)
+			if len(values) == 0 {
+				continue
+			}
+			members = make([]string, len(values))
+			for i, value := range values {
+				members[i] = usernameFromMember(value)
+			}
+			break
 		}
 	}
 	return
