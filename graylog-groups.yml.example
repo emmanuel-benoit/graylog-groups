@@ -37,6 +37,13 @@ ldap:
     - uniqueMember
     - memberUid
 
+  # Username attribute. This is used when group member fields contain the '='
+  # ',' character, in which case the value will be considered a DN and looked up
+  # in the LDAP. The field specified by this configuration value will be read
+  # and used as the login name. If this configuration value is not set, the
+  # first element in the DN will be extracted and used as the username.
+  username_attribute: uid
+
 # Graylog server info
 # --------------------
 graylog:

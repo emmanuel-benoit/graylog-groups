@@ -55,8 +55,6 @@ To Do
 * Add TLS options (skip checks / specify CA) for the Graylog API.
 * Read object ownership using `grn_permissions` to preserve privileges on users'
   own objects
-* Read group member records from the LDAP server and extract their username
-  from an attribute.
 * Support granting ownership on objects
 * Cleaner CLI
 * Use goroutines ? Maybe.

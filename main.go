@@ -27,12 +27,13 @@ type (
 		Host           string
 		Port           uint16
 		Tls            string
-		TlsNoVerify    bool `yaml:"tls_skip_verify"`
-		TlsAllowCnOnly bool `yaml:"tls_allow_cn_only"`
-		CaChain        string
+		TlsNoVerify    bool     `yaml:"tls_skip_verify"`
+		TlsAllowCnOnly bool     `yaml:"tls_allow_cn_only"`
+		CaChain        string   `yaml:"cachain"`
 		BindUser       string   `yaml:"bind_user"`
 		BindPassword   string   `yaml:"bind_password"`
 		MemberFields   []string `yaml:"member_fields"`
+		UsernameAttr   string   `yaml:"username_attribute"`
 	}
 
 	// Graylog server configuration
@@ -194,22 +195,6 @@ func getGraylogUsers(configuration GraylogConfig) (users []GraylogUser) {
 	return
 }
 
-// Extract an username from something that may be an username or a DN.
-func usernameFromMember(member string) string {
-	eqPos := strings.Index(member, "=")
-	if eqPos == -1 {
-		return member
-	}
-	commaPos := strings.Index(member, ",")
-	if commaPos == -1 {
-		return member[eqPos+1:]
-	}
-	if eqPos > commaPos {
-		log.Fatalf("couldn't extract user name from %s", member)
-	}
-	return member[eqPos+1 : commaPos]
-}
-
 // Establish a connection to the LDAP server
 func getLdapConnection(cfg LdapConfig) (conn *ldap.Conn) {
 	tlsConfig := &tls.Config{
@@ -248,26 +233,79 @@ func getLdapConnection(cfg LdapConfig) (conn *ldap.Conn) {
 	return
 }
 
-// Read the list of members from a LDAP group
-func getGroupMembers(group string, conn *ldap.Conn, fields []string) (members []string) {
-	req := ldap.NewSearchRequest(group, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 0, false, "(objectClass=*)", fields, nil)
+// Run a LDAP query to obtain a single object.
+func executeQuery(conn *ldap.Conn, dn string, attrs []string) (bool, *ldap.Entry) {
+	req := ldap.NewSearchRequest(
+		dn,
+		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 0, false,
+		"(objectClass=*)", attrs, nil)
 	res, err := conn.Search(req)
 	if err != nil {
-		log.Fatalf("LDAP search for %s: %v", group, err)
-	}
-
-	for _, entry := range res.Entries {
-		for _, attr := range fields {
-			values := entry.GetAttributeValues(attr)
-			if len(values) == 0 {
-				continue
-			}
-			members = make([]string, len(values))
-			for i, value := range values {
-				members[i] = usernameFromMember(value)
-			}
-			break
+		ldapError, ok := err.(*ldap.Error)
+		if ok && ldapError.ResultCode == ldap.LDAPResultNoSuchObject {
+			return false, nil
 		}
+		log.Fatalf("LDAP search for %s: %v", dn, err)
+	}
+	if len(res.Entries) > 1 {
+		log.Printf("LDAP search for %s returned more than 1 record", dn)
+		return false, nil
+	}
+	return true, res.Entries[0]
+}
+
+// Read a username from a LDAP record based on a DN.
+func readUsernameFromLdap(dn string, conn *ldap.Conn, attr string) (bool, string) {
+	ok, res := executeQuery(conn, dn, []string{attr})
+	if !ok {
+		return false, ""
+	}
+	values := res.GetAttributeValues(attr)
+	if len(values) != 1 {
+		log.Printf("LDAP search for %s: attribute %s has %d values", dn, attr, len(values))
+		return false, ""
+	}
+	return true, values[0]
+}
+
+// Extract an username from something that may be an username or a DN.
+func usernameFromMember(member string, conn *ldap.Conn, config LdapConfig) (bool, string) {
+	eqPos := strings.Index(member, "=")
+	if eqPos == -1 {
+		return true, member
+	}
+	if config.UsernameAttr != "" {
+		return readUsernameFromLdap(member, conn, config.UsernameAttr)
+	}
+	commaPos := strings.Index(member, ",")
+	if commaPos == -1 {
+		return true, member[eqPos+1:]
+	}
+	if eqPos > commaPos {
+		log.Printf("couldn't extract user name from %s", member)
+		return false, ""
+	}
+	return true, member[eqPos+1 : commaPos]
+}
+
+// Read the list of members from a LDAP group
+func getGroupMembers(group string, conn *ldap.Conn, config LdapConfig) (members []string) {
+	ok, entry := executeQuery(conn, group, config.MemberFields)
+	if !ok {
+		return
+	}
+	for _, attr := range config.MemberFields {
+		values := entry.GetAttributeValues(attr)
+		if len(values) == 0 {
+			continue
+		}
+		for _, value := range values {
+			ok, name := usernameFromMember(value, conn, config)
+			if ok {
+				members = append(members, name)
+			}
+		}
+		break
 	}
 	return
 }
@@ -286,7 +324,7 @@ func readLdapGroups(configuration Configuration) (groups GroupMembers) {
 
 	groups = make(GroupMembers)
 	for group := range configuration.Mapping {
-		groups[group] = getGroupMembers(group, conn, configuration.Ldap.MemberFields)
+		groups[group] = getGroupMembers(group, conn, configuration.Ldap)
 	}
 	return
 }
