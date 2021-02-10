@@ -52,10 +52,14 @@ go build
 To Do
 ------
 
-* Proper logging.
+* Proper logging, work in progress:
+  * Add logs to the privilege computations and related API calls.
+  * Sending logs to... well, Graylog... through CLI switches.
+  * Writing logs to a file.
+* Document command line flags.
+* Cache LDAP username lookups
 * Add TLS options (skip checks / specify CA) for the Graylog API.
 * Read object ownership using `grn_permissions` to preserve privileges on users'
   own objects
 * Support granting ownership on objects
-* Cleaner CLI
 * Use goroutines ? Maybe.

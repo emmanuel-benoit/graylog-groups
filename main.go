@@ -5,35 +5,50 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/go-ldap/ldap"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
 type (
+	// This structure contains all values that may be set from the command line.
+	cliFlags struct {
+		// The path to the configuration file.
+		cfgFile string
+		// The name of the instance, to be used in logs.
+		instance string
+		// The log level.
+		logLevel string
+	}
+
+	// LDAP connection encapsulation, including a logger.
+	ldapConn struct {
+		conn *ldap.Conn
+		log  *logrus.Entry
+	}
+
 	/*                    *
 	 * CONFIGURATION DATA *
 	 *                    */
 
 	// LDAP server configuration
 	LdapConfig struct {
-		Host           string
-		Port           uint16
-		Tls            string
-		TlsNoVerify    bool     `yaml:"tls_skip_verify"`
-		TlsAllowCnOnly bool     `yaml:"tls_allow_cn_only"`
-		CaChain        string   `yaml:"cachain"`
-		BindUser       string   `yaml:"bind_user"`
-		BindPassword   string   `yaml:"bind_password"`
-		MemberFields   []string `yaml:"member_fields"`
-		UsernameAttr   string   `yaml:"username_attribute"`
+		Host         string
+		Port         uint16
+		Tls          string
+		TlsNoVerify  bool     `yaml:"tls_skip_verify"`
+		CaChain      string   `yaml:"cachain"`
+		BindUser     string   `yaml:"bind_user"`
+		BindPassword string   `yaml:"bind_password"`
+		MemberFields []string `yaml:"member_fields"`
+		UsernameAttr string   `yaml:"username_attribute"`
 	}
 
 	// Graylog server configuration
@@ -109,19 +124,35 @@ var (
 		"stream:read":     {"streams:read:%s"},
 		"stream:write":    {"streams:read:%s", "streams:edit:%s", "streams:changestate:%s"},
 	}
+	// The logging context.
+	log *logrus.Entry
 )
 
-// Load and check the configuration file
-func loadConfiguration() (configuration Configuration) {
-	var cfgFile string
-	if len(os.Args) < 2 {
-		cfgFile = "graylog-groups.yml"
-	} else {
-		cfgFile = os.Args[1]
+// Check group/privilege mapping configuration
+func checkPrivMapping(cfg GroupMapping, log *logrus.Entry) {
+	for group, info := range cfg {
+		log := log.WithField("group", group)
+		for index, priv := range info.Privileges {
+			log := log.WithField("entry", index)
+			if !graylogItems[priv.Type] {
+				log.WithField("item", priv.Type).
+					Fatal("Invalid Graylog item")
+			}
+			if _, ok := privLevels[priv.Level]; !ok {
+				log.WithField("level", priv.Type).
+					Fatal("Invalid privilege level")
+			}
+		}
 	}
-	cfgData, err := ioutil.ReadFile(cfgFile)
+}
+
+// Load and check the configuration file
+func loadConfiguration(flags cliFlags) (configuration Configuration) {
+	log := log.WithField("config", flags.cfgFile)
+	log.Trace("Loading configuration")
+	cfgData, err := ioutil.ReadFile(flags.cfgFile)
 	if err != nil {
-		log.Fatalf("could not load configuration: %v", err)
+		log.WithField("error", err).Fatal("Could not load configuration")
 	}
 
 	configuration = Configuration{
@@ -132,29 +163,26 @@ func loadConfiguration() (configuration Configuration) {
 	}
 	err = yaml.Unmarshal(cfgData, &configuration)
 	if err != nil {
-		log.Fatalf("could not parse configuration: %v", err)
+		log.WithField("error", err).Fatal("Could not parse configuration")
 	}
 
-	for _, info := range configuration.Mapping {
-		for _, priv := range info.Privileges {
-			if !graylogItems[priv.Type] {
-				log.Fatalf("invalid Graylog item %s", priv.Type)
-			}
-			if _, ok := privLevels[priv.Level]; !ok {
-				log.Fatalf("invalid privilege level %s", priv.Level)
-			}
-		}
-	}
-
+	checkPrivMapping(configuration.Mapping, log)
 	return
 }
 
 // Execute a Graylog API request, returning the status code and the body
 func executeApiCall(cfg GraylogConfig, method string, path string, data io.Reader) (status int, body []byte) {
+	log := log.WithFields(logrus.Fields{
+		"base":     cfg.ApiBase,
+		"username": cfg.Username,
+		"method":   method,
+		"path":     path,
+	})
+	log.Trace("Executing Graylog API call")
 	client := &http.Client{}
 	request, err := http.NewRequest(method, fmt.Sprintf("%s/%s", cfg.ApiBase, path), data)
 	if err != nil {
-		log.Fatalf("could not create HTTP request: %v", err)
+		log.WithField("error", err).Fatal("Could not create HTTP request")
 	}
 	request.SetBasicAuth(cfg.Username, cfg.Password)
 	if data != nil {
@@ -163,27 +191,29 @@ func executeApiCall(cfg GraylogConfig, method string, path string, data io.Reade
 	request.Header.Add("X-Requested-By", "graylog-groups")
 	response, err := client.Do(request)
 	if err != nil {
-		log.Fatalf("could not execute %s %s request on Graylog at %s: %v", method, path, cfg.ApiBase, err)
+		log.WithField("error", err).Fatal("Could not execute HTTP request")
 	}
 	defer response.Body.Close()
 	status = response.StatusCode
 	body, err = ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatalf("could not read Graylog response: %v", err)
+		log.WithField("error", err).Fatal("Could not read Graylog response")
 	}
+	log.WithField("status", status).Trace("Executed Graylog API call")
 	return
 }
 
 // Get the list of Graylog users that have been imported from LDAP
 func getGraylogUsers(configuration GraylogConfig) (users []GraylogUser) {
+	log.Trace("Getting users from the Graylog API")
 	status, body := executeApiCall(configuration, "GET", "users", nil)
 	if status != 200 {
-		log.Fatalf("could not read users: status code %v", status)
+		log.WithField("status", status).Fatal("Could not read users")
 	}
 
 	data := GlUsers{}
 	if err := json.Unmarshal(body, &data); err != nil {
-		log.Fatalf("could not parse Graylog's user response: %v", err)
+		log.WithField("error", err).Fatal("Could not parse Graylog's user list")
 	}
 
 	users = make([]GraylogUser, 0)
@@ -192,84 +222,128 @@ func getGraylogUsers(configuration GraylogConfig) (users []GraylogUser) {
 			users = append(users, item.GraylogUser)
 		}
 	}
+	log.WithField("users", len(users)).Info("Obtained users from the Graylog API")
 	return
 }
 
 // Establish a connection to the LDAP server
-func getLdapConnection(cfg LdapConfig) (conn *ldap.Conn) {
+func getLdapConnection(cfg LdapConfig) (conn ldapConn) {
+	dest := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	log := log.WithFields(logrus.Fields{
+		"ldap_server": dest,
+		"ldap_tls":    cfg.Tls,
+	})
+	log.Trace("Establishing LDAP connection")
+
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.TlsNoVerify,
 	}
 	if cfg.Tls != "no" && cfg.CaChain != "" {
+		log := log.WithField("cachain", cfg.CaChain)
 		data, err := ioutil.ReadFile(cfg.CaChain)
 		if err != nil {
-			log.Fatalf("failed to read CA certificate chain from %s", cfg.CaChain)
+			log.WithField("error", err).Fatal("Failed to read CA certificate chain")
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(data) {
-			log.Fatalf("could not add CA certificates from %s", cfg.CaChain)
+			log.Fatal("Could not add CA certificates")
 		}
 		tlsConfig.RootCAs = pool
 	}
 
 	var err error
-	dest := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	var lc *ldap.Conn
 	if cfg.Tls == "yes" {
-		conn, err = ldap.DialTLS("tcp", dest, tlsConfig)
+		lc, err = ldap.DialTLS("tcp", dest, tlsConfig)
 	} else {
-		conn, err = ldap.Dial("tcp", dest)
+		lc, err = ldap.Dial("tcp", dest)
+	}
+	conn = ldapConn{
+		conn: lc,
+		log:  log,
 	}
 	if err != nil {
-		log.Fatalf("failed to connect to LDAP server %s: %v", cfg.Host, err)
+		conn.log.WithField("error", err).Fatal("Failed to connect to the LDAP server")
 	}
 
 	if cfg.Tls == "starttls" {
-		err = conn.StartTLS(tlsConfig)
+		err = lc.StartTLS(tlsConfig)
 		if err != nil {
-			conn.Close()
-			log.Fatalf("LDAP server %s, StartTLS failed: %v", cfg.Host, err)
+			lc.Close()
+			conn.log.WithField("error", err).Fatal("StartTLS failed")
 		}
 	}
+
+	if cfg.BindUser != "" {
+		conn.log = conn.log.WithField("ldap_user", cfg.BindUser)
+		err := lc.Bind(cfg.BindUser, cfg.BindPassword)
+		if err != nil {
+			conn.close()
+			conn.log.WithField("error", err).Fatal("Could not bind")
+		}
+	}
+	log.Debug("LDAP connection established")
 	return
 }
 
 // Run a LDAP query to obtain a single object.
-func executeQuery(conn *ldap.Conn, dn string, attrs []string) (bool, *ldap.Entry) {
+func (conn ldapConn) query(dn string, attrs []string) (bool, *ldap.Entry) {
+	log := conn.log.WithFields(logrus.Fields{
+		"dn":         dn,
+		"attributes": attrs,
+	})
+	log.Trace("Accessing DN")
 	req := ldap.NewSearchRequest(
 		dn,
 		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 0, false,
 		"(objectClass=*)", attrs, nil)
-	res, err := conn.Search(req)
+	res, err := conn.conn.Search(req)
 	if err != nil {
 		ldapError, ok := err.(*ldap.Error)
 		if ok && ldapError.ResultCode == ldap.LDAPResultNoSuchObject {
+			log.Trace("DN not found")
 			return false, nil
 		}
-		log.Fatalf("LDAP search for %s: %v", dn, err)
+		log.WithField("error", err).Fatal("LDAP query failed")
 	}
 	if len(res.Entries) > 1 {
-		log.Printf("LDAP search for %s returned more than 1 record", dn)
+		log.WithField("results", len(res.Entries)).
+			Warning("LDAP search returned more than 1 record")
 		return false, nil
 	}
+	log.Trace("Obtained LDAP object")
 	return true, res.Entries[0]
 }
 
+// Close a LDAP connection
+func (conn ldapConn) close() {
+	conn.log.Trace("Closing LDAP connection")
+	conn.conn.Close()
+}
+
 // Read a username from a LDAP record based on a DN.
-func readUsernameFromLdap(dn string, conn *ldap.Conn, attr string) (bool, string) {
-	ok, res := executeQuery(conn, dn, []string{attr})
+func readUsernameFromLdap(dn string, conn ldapConn, attr string) (bool, string) {
+	log := conn.log.WithFields(logrus.Fields{
+		"dn":        dn,
+		"attribute": attr,
+	})
+	log.Trace("Converting DN to username")
+	ok, res := conn.query(dn, []string{attr})
 	if !ok {
 		return false, ""
 	}
 	values := res.GetAttributeValues(attr)
 	if len(values) != 1 {
-		log.Printf("LDAP search for %s: attribute %s has %d values", dn, attr, len(values))
+		log.WithField("count", len(values)).
+			Warning("Attribute does not have 1 value exactly.")
 		return false, ""
 	}
+	log.WithField("username", values[0]).Trace("Mapped DN to username")
 	return true, values[0]
 }
 
 // Extract an username from something that may be an username or a DN.
-func usernameFromMember(member string, conn *ldap.Conn, config LdapConfig) (bool, string) {
+func usernameFromMember(member string, conn ldapConn, config LdapConfig) (bool, string) {
 	eqPos := strings.Index(member, "=")
 	if eqPos == -1 {
 		return true, member
@@ -289,8 +363,10 @@ func usernameFromMember(member string, conn *ldap.Conn, config LdapConfig) (bool
 }
 
 // Read the list of members from a LDAP group
-func getGroupMembers(group string, conn *ldap.Conn, config LdapConfig) (members []string) {
-	ok, entry := executeQuery(conn, group, config.MemberFields)
+func getGroupMembers(group string, conn ldapConn, config LdapConfig) (members []string) {
+	log := conn.log.WithField("group", group)
+	log.Trace("Obtaining group members")
+	ok, entry := conn.query(group, config.MemberFields)
 	if !ok {
 		return
 	}
@@ -307,20 +383,14 @@ func getGroupMembers(group string, conn *ldap.Conn, config LdapConfig) (members 
 		}
 		break
 	}
+	log.WithField("members", members).Info("Obtained group members")
 	return
 }
 
 // Read the list of group members from the LDAP server for all groups in the mapping section.
 func readLdapGroups(configuration Configuration) (groups GroupMembers) {
 	conn := getLdapConnection(configuration.Ldap)
-	defer conn.Close()
-
-	if configuration.Ldap.BindUser != "" {
-		err := conn.Bind(configuration.Ldap.BindUser, configuration.Ldap.BindPassword)
-		if err != nil {
-			log.Fatalf("LDAP server %s, could not bind: %v", configuration.Ldap.Host, err)
-		}
-	}
+	defer conn.close()
 
 	groups = make(GroupMembers)
 	for group := range configuration.Mapping {
@@ -398,10 +468,14 @@ func computePrivileges(mapping GroupMapping, membership []string) (privileges []
 
 // Delete a Graylog user account
 func deleteAccount(cfg GraylogConfig, user string) {
-	log.Printf("DELETING ACCOUNT %s", user)
+	log := log.WithField("user", user)
+	log.Warning("Deleting Graylog account")
 	code, body := executeApiCall(cfg, "DELETE", fmt.Sprintf("/users/%s", user), nil)
 	if code != 204 {
-		log.Fatalf("could not delete user %s: code %d, body '%s'", user, code, string(body))
+		log.WithFields(logrus.Fields{
+			"status": code,
+			"body":   string(body),
+		}).Fatal("Could not delete user")
 	}
 }
 
@@ -470,8 +544,57 @@ func applyMapping(cfg Configuration, users []GraylogUser, groups GroupMembers) {
 	}
 }
 
+// Parse command line options.
+func parseCommandLine() cliFlags {
+	flags := cliFlags{}
+	flag.StringVar(&flags.cfgFile, "c", "graylog-groups.yml", "Configuration file.")
+	flag.StringVar(&flags.instance, "i", "", "Instance identifier.")
+	flag.StringVar(&flags.logLevel, "L", "", "Log level for the logrus library.")
+	flag.Parse()
+	return flags
+}
+
+// Initialize the logging context.
+func getLoggingContext(instance string) *logrus.Entry {
+	logFields := logrus.Fields{
+		"application": "graylog",
+		"component":   "graylog-groups",
+	}
+	if instance != "" {
+		logFields["instance"] = instance
+	}
+	return logrus.WithFields(logFields)
+}
+
+// Configure the log level
+func configureLogLevel(cliLevel string) {
+	var lvl logrus.Level
+	if cliLevel == "" {
+		lvl = logrus.InfoLevel
+	} else {
+		var err error
+		lvl, err = logrus.ParseLevel(cliLevel)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"level": cliLevel,
+			}).Warning("Invalid log level on command line")
+			lvl = logrus.InfoLevel
+		}
+	}
+	log.Logger.SetLevel(lvl)
+}
+
+// Configure the logging library based on the various command line flags.
+func configureLogging(flags cliFlags) {
+	log = getLoggingContext(flags.instance)
+	configureLogLevel(flags.logLevel)
+}
+
 func main() {
-	configuration := loadConfiguration()
+	flags := parseCommandLine()
+	configureLogging(flags)
+	log.Debug("Starting synchronization")
+	configuration := loadConfiguration(flags)
 	glUsers := getGraylogUsers(configuration.Graylog)
 	groups := readLdapGroups(configuration)
 	applyMapping(configuration, glUsers, groups)
