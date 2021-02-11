@@ -45,27 +45,22 @@ func getLoggingContext(instance string) *logrus.Entry {
 }
 
 // Configure the log level
-func configureLogLevel(cliLevel string) {
-	var lvl logrus.Level
+func toLogLevel(cliLevel string) logrus.Level {
 	if cliLevel == "" {
-		lvl = logrus.InfoLevel
-	} else {
-		var err error
-		lvl, err = logrus.ParseLevel(cliLevel)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"level": cliLevel,
-			}).Warning("Invalid log level on command line")
-			lvl = logrus.InfoLevel
-		}
+		return logrus.InfoLevel
 	}
-	log.Logger.SetLevel(lvl)
+	lvl, err := logrus.ParseLevel(cliLevel)
+	if err == nil {
+		return lvl
+	}
+	log.WithField("level", cliLevel).Warning("Invalid log level on command line")
+	return logrus.InfoLevel
 }
 
 // Configure the logging library based on the various command line flags.
 func configureLogging(flags cliFlags) {
 	log = getLoggingContext(flags.instance)
-	configureLogLevel(flags.logLevel)
+	log.Logger.SetLevel(toLogLevel(flags.logLevel))
 }
 
 func main() {
