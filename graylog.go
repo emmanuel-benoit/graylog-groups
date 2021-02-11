@@ -184,7 +184,7 @@ func deleteAccount(cfg GraylogConfig, user string) {
 		log.WithFields(logrus.Fields{
 			"status": code,
 			"body":   string(body),
-		}).Fatal("Could not delete user")
+		}).Error("Could not delete user")
 	}
 }
 
@@ -208,33 +208,50 @@ func getDifference(a []string, b []string) (diff []string) {
 
 // Set an account's roles and grant it access to Graylog objects
 func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, privileges []string) {
+	log := log.WithField("user", user.Username)
+
 	type perms struct {
 		Permissions []string `json:"permissions"`
 	}
 	p := perms{Permissions: privileges}
 	data, err := json.Marshal(p)
 	if err != nil {
-		log.Fatalf("unable to generate permissions JSON for %s: %v", user, err)
+		log.WithField("error", err).Fatal("Unable to generate permissions JSON")
 	}
-
-	code, body := executeApiCall(cfg, "PUT", fmt.Sprintf("users/%s/permissions", user.Username), bytes.NewBuffer(data))
+	log.WithField("privileges", privileges).Info("Setting permissions")
+	code, body := executeApiCall(cfg, "PUT",
+		fmt.Sprintf("users/%s/permissions", user.Username),
+		bytes.NewBuffer(data))
 	if code != 204 {
-		log.Fatalf("could not set permissions for %s: code %d, body '%s'", user.Username, code, string(body))
+		log.WithFields(logrus.Fields{
+			"status": code,
+			"body":   string(body),
+		}).Error("Could not set permissions")
 	}
 
 	placeholder := bytes.NewBuffer([]byte("{}"))
 	for _, role := range getDifference(roles, user.Roles) {
 		ep := fmt.Sprintf("roles/%s/members/%s", role, user.Username)
+		log.WithField("role", role).Info("Adding role")
 		code, body := executeApiCall(cfg, "PUT", ep, placeholder)
 		if code != 204 {
-			log.Fatalf("could not add role %s to %s: code %d, body '%s'", role, user.Username, code, string(body))
+			log.WithFields(logrus.Fields{
+				"status": code,
+				"body":   string(body),
+				"role":   role,
+			}).Error("Could not add role")
 		}
 	}
 	for _, role := range getDifference(user.Roles, roles) {
 		ep := fmt.Sprintf("roles/%s/members/%s", role, user.Username)
+		log.WithField("role", role).Info("Removing role")
 		code, body := executeApiCall(cfg, "DELETE", ep, nil)
 		if code != 204 {
-			log.Fatalf("could not remove role %s from %s: code %d, body '%s'", role, user.Username, code, string(body))
+			log.WithFields(logrus.Fields{
+				"status": code,
+				"body":   string(body),
+				"role":   role,
+			}).Error("Could not remove role")
 		}
 	}
 }
@@ -242,9 +259,13 @@ func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, priv
 // Apply privilege mappings to the external Graylog users
 func applyMapping(cfg Configuration, users []GraylogUser, groups GroupMembers) {
 	for _, user := range users {
+		log := log.WithField("user", user.Username)
 		membership := getUserGroups(user.Username, groups)
+		log.WithField("groups", membership).Trace("Computed group membership")
 		roles := computeRoles(cfg.Mapping, membership)
+		log.WithField("roles", roles).Trace("Computed roles")
 		privileges := computePrivileges(cfg.Mapping, membership)
+		log.WithField("privileges", privileges).Trace("Computed privileges")
 		if cfg.Graylog.DeleteAccounts && len(roles) == 0 && len(privileges) == 0 {
 			deleteAccount(cfg.Graylog, user.Username)
 		} else {

@@ -53,7 +53,6 @@ To Do
 ------
 
 * Proper logging, work in progress:
-  * Add logs to the privilege computations and related API calls.
   * Sending logs to... well, Graylog... through CLI switches.
   * Writing logs to a file.
 * Document command line flags.
