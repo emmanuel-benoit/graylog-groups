@@ -67,7 +67,7 @@ func toLogLevel(cliLevel string) logrus.Level {
 func configureLogFile(path string) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
-		logrus.AddHook(&lrh_wr.Hook{
+		log.Logger.AddHook(&lrh_wr.Hook{
 			Writer:    file,
 			LogLevels: logrus.AllLevels,
 		})
