@@ -2,7 +2,10 @@ package main
 
 import (
 	"flag"
+	"os"
+
 	"github.com/sirupsen/logrus"
+	lrh_wr "github.com/sirupsen/logrus/hooks/writer"
 )
 
 type (
@@ -14,6 +17,8 @@ type (
 		instance string
 		// The log level.
 		logLevel string
+		// A file to write logs into.
+		logFile string
 	}
 )
 
@@ -27,7 +32,8 @@ func parseCommandLine() cliFlags {
 	flags := cliFlags{}
 	flag.StringVar(&flags.cfgFile, "c", "graylog-groups.yml", "Configuration file.")
 	flag.StringVar(&flags.instance, "i", "", "Instance identifier.")
-	flag.StringVar(&flags.logLevel, "L", "", "Log level for the logrus library.")
+	flag.StringVar(&flags.logLevel, "L", "", "Log level.")
+	flag.StringVar(&flags.logFile, "log-file", "", "Log file.")
 	flag.Parse()
 	return flags
 }
@@ -57,10 +63,29 @@ func toLogLevel(cliLevel string) logrus.Level {
 	return logrus.InfoLevel
 }
 
+// Add a file writer hook to the logging library.
+func configureLogFile(path string) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		logrus.AddHook(&lrh_wr.Hook{
+			Writer:    file,
+			LogLevels: logrus.AllLevels,
+		})
+	} else {
+		log.WithFields(logrus.Fields{
+			"error": err,
+			"file":  path,
+		}).Error("Could not open log file")
+	}
+}
+
 // Configure the logging library based on the various command line flags.
 func configureLogging(flags cliFlags) {
 	log = getLoggingContext(flags.instance)
 	log.Logger.SetLevel(toLogLevel(flags.logLevel))
+	if flags.logFile != "" {
+		configureLogFile(flags.logFile)
+	}
 }
 
 func main() {
