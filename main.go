@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io/ioutil"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -15,6 +16,8 @@ type (
 		cfgFile string
 		// The name of the instance, to be used in logs.
 		instance string
+		// Quiet mode. Will disable logging to stderr.
+		quiet bool
 		// The log level.
 		logLevel string
 		// A file to write logs into.
@@ -32,6 +35,7 @@ func parseCommandLine() cliFlags {
 	flags := cliFlags{}
 	flag.StringVar(&flags.cfgFile, "c", "graylog-groups.yml", "Configuration file.")
 	flag.StringVar(&flags.instance, "i", "", "Instance identifier.")
+	flag.BoolVar(&flags.quiet, "q", false, "Quiet mode.")
 	flag.StringVar(&flags.logLevel, "L", "", "Log level.")
 	flag.StringVar(&flags.logFile, "log-file", "", "Log file.")
 	flag.Parse()
@@ -85,6 +89,9 @@ func configureLogging(flags cliFlags) {
 	log.Logger.SetLevel(toLogLevel(flags.logLevel))
 	if flags.logFile != "" {
 		configureLogFile(flags.logFile)
+	}
+	if flags.quiet {
+		log.Logger.SetOutput(ioutil.Discard)
 	}
 }
 
