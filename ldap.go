@@ -15,9 +15,11 @@ type (
 	// LDAP connection encapsulation. This includes the connection itself, as well as a logger
 	// that includes fields related to the LDAP server and a copy of the initial configuration.
 	ldapConn struct {
-		conn *ldap.Conn
-		log  *logrus.Entry
-		cfg  LdapConfig
+		conn      *ldap.Conn
+		log       *logrus.Entry
+		cfg       LdapConfig
+		usernames map[string]string
+		counter   uint
 	}
 
 	// LDAP group members
@@ -25,7 +27,7 @@ type (
 )
 
 // Establish a connection to the LDAP server
-func getLdapConnection(cfg LdapConfig) ldapConn {
+func getLdapConnection(cfg LdapConfig) *ldapConn {
 	dest := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log := log.WithFields(logrus.Fields{
 		"ldap_server": dest,
@@ -77,20 +79,22 @@ func getLdapConnection(cfg LdapConfig) ldapConn {
 		}
 	}
 	log.Debug("LDAP connection established")
-	return ldapConn{
-		conn: lc,
-		log:  log,
-		cfg:  cfg,
+	return &ldapConn{
+		conn:      lc,
+		log:       log,
+		cfg:       cfg,
+		usernames: make(map[string]string),
 	}
 }
 
 // Run a LDAP query to obtain a single object.
-func (conn ldapConn) query(dn string, attrs []string) (bool, *ldap.Entry) {
+func (conn *ldapConn) query(dn string, attrs []string) (bool, *ldap.Entry) {
 	log := conn.log.WithFields(logrus.Fields{
 		"dn":         dn,
 		"attributes": attrs,
 	})
 	log.Trace("Accessing DN")
+	conn.counter++
 	req := ldap.NewSearchRequest(
 		dn,
 		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 0, false,
@@ -114,18 +118,15 @@ func (conn ldapConn) query(dn string, attrs []string) (bool, *ldap.Entry) {
 }
 
 // Close a LDAP connection
-func (conn ldapConn) close() {
-	conn.log.Trace("Closing LDAP connection")
+func (conn *ldapConn) close() {
+	conn.log.WithField("queries", conn.counter).Debug("Closing LDAP connection")
 	conn.conn.Close()
 }
 
 // Read a username from a LDAP record based on a DN.
-func (conn ldapConn) readUsername(dn string) (bool, string) {
-	log := conn.log.WithFields(logrus.Fields{
-		"dn":        dn,
-		"attribute": conn.cfg.UsernameAttr,
-	})
-	log.Trace("Converting DN to username")
+func (conn *ldapConn) readUsername(dn string) (bool, string) {
+	log := conn.log.WithField("dn", dn)
+	log.Debug("LDAP username lookup")
 	ok, res := conn.query(dn, []string{conn.cfg.UsernameAttr})
 	if !ok {
 		return false, ""
@@ -141,7 +142,7 @@ func (conn ldapConn) readUsername(dn string) (bool, string) {
 }
 
 // Extract an username from something that may be an username or a DN.
-func (conn ldapConn) usernameFromMember(member string) (bool, string) {
+func (conn *ldapConn) usernameFromMember(member string) (bool, string) {
 	eqPos := strings.Index(member, "=")
 	if eqPos == -1 {
 		return true, member
@@ -160,8 +161,22 @@ func (conn ldapConn) usernameFromMember(member string) (bool, string) {
 	return true, member[eqPos+1 : commaPos]
 }
 
+// Read a username from the cache. If the username is not cached, extract it or request it from
+// the LDAP.
+func (conn *ldapConn) getUsername(member string) (bool, string) {
+	name, ok := conn.usernames[member]
+	if ok {
+		return true, name
+	}
+	ok, name = conn.usernameFromMember(member)
+	if ok {
+		conn.usernames[member] = name
+	}
+	return ok, name
+}
+
 // Read the list of members from a LDAP group
-func (conn ldapConn) getGroupMembers(group string) (members []string) {
+func (conn *ldapConn) getGroupMembers(group string) (members []string) {
 	log := conn.log.WithField("group", group)
 	log.Trace("Obtaining group members")
 	ok, entry := conn.query(group, conn.cfg.MemberFields)
@@ -174,7 +189,7 @@ func (conn ldapConn) getGroupMembers(group string) (members []string) {
 			continue
 		}
 		for _, value := range values {
-			ok, name := conn.usernameFromMember(value)
+			ok, name := conn.getUsername(value)
 			if ok {
 				members = append(members, name)
 			}
