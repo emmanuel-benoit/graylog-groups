@@ -54,10 +54,10 @@ To Do
 
 * Proper logging, work in progress:
   * Sending logs to... well, Graylog... through CLI switches.
-  * Fix file output when quiet mode flag is specified.
 * Document command line flags.
 * Add TLS options (skip checks / specify CA) for the Graylog API.
 * Read object ownership using `grn_permissions` to preserve privileges on users'
   own objects
 * Support granting ownership on objects
 * Use goroutines ? Maybe.
+* Custom log file/terminal output

@@ -86,6 +86,10 @@ func configureLogFile(path string) {
 // Configure the logging library based on the various command line flags.
 func configureLogging(flags cliFlags) {
 	log = getLoggingContext(flags.instance)
+	log.Logger.SetFormatter(&logrus.TextFormatter{
+		DisableColors: true,
+		FullTimestamp: true,
+	})
 	log.Logger.SetLevel(toLogLevel(flags.logLevel))
 	if flags.logFile != "" {
 		configureLogFile(flags.logFile)
