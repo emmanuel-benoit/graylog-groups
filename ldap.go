@@ -17,28 +17,28 @@ type (
 	ldapConn struct {
 		conn      *ldap.Conn
 		log       *logrus.Entry
-		cfg       LdapConfig
+		cfg       ldapConfig
 		usernames map[string]string
 		counter   uint
 	}
 
 	// LDAP group members
-	GroupMembers map[string][]string
+	ldapGroupMembers map[string][]string
 )
 
 // Establish a connection to the LDAP server
-func getLdapConnection(cfg LdapConfig) *ldapConn {
+func getLdapConnection(cfg ldapConfig) *ldapConn {
 	dest := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log := log.WithFields(logrus.Fields{
 		"ldap_server": dest,
-		"ldap_tls":    cfg.Tls,
+		"ldap_tls":    cfg.TLS,
 	})
 	log.Trace("Establishing LDAP connection")
 
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: cfg.TlsNoVerify,
+		InsecureSkipVerify: cfg.TLSNoVerify,
 	}
-	if cfg.Tls != "no" && cfg.CaChain != "" {
+	if cfg.TLS != "no" && cfg.CaChain != "" {
 		log := log.WithField("cachain", cfg.CaChain)
 		data, err := ioutil.ReadFile(cfg.CaChain)
 		if err != nil {
@@ -53,7 +53,7 @@ func getLdapConnection(cfg LdapConfig) *ldapConn {
 
 	var err error
 	var lc *ldap.Conn
-	if cfg.Tls == "yes" {
+	if cfg.TLS == "yes" {
 		lc, err = ldap.DialTLS("tcp", dest, tlsConfig)
 	} else {
 		lc, err = ldap.Dial("tcp", dest)
@@ -62,7 +62,7 @@ func getLdapConnection(cfg LdapConfig) *ldapConn {
 		log.WithField("error", err).Fatal("Failed to connect to the LDAP server")
 	}
 
-	if cfg.Tls == "starttls" {
+	if cfg.TLS == "starttls" {
 		err = lc.StartTLS(tlsConfig)
 		if err != nil {
 			lc.Close()
@@ -201,11 +201,11 @@ func (conn *ldapConn) getGroupMembers(group string) (members []string) {
 }
 
 // Read the list of group members from the LDAP server for all groups in the mapping section.
-func readLdapGroups(configuration Configuration) GroupMembers {
-	conn := getLdapConnection(configuration.Ldap)
+func readLdapGroups(cfg configuration) ldapGroupMembers {
+	conn := getLdapConnection(cfg.LDAP)
 	defer conn.close()
-	groups := make(GroupMembers)
-	for group := range configuration.Mapping {
+	groups := make(ldapGroupMembers)
+	for group := range cfg.Mapping {
 		groups[group] = conn.getGroupMembers(group)
 	}
 	return groups

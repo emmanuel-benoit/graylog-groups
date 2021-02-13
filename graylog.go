@@ -13,15 +13,15 @@ import (
 
 type (
 	// A Graylog user and associated roles
-	GraylogUser struct {
+	graylogUser struct {
 		Username string
 		Roles    []string
 	}
 
 	// The response obtained when querying the Graylog server for a list of users.
-	GlUsers struct {
+	graylogUsers struct {
 		Users []struct {
-			GraylogUser
+			graylogUser
 			External bool
 		}
 	}
@@ -53,16 +53,16 @@ var (
 )
 
 // Execute a Graylog API request, returning the status code and the body
-func executeApiCall(cfg GraylogConfig, method string, path string, data io.Reader) (status int, body []byte) {
+func executeAPICall(cfg graylogConfig, method string, path string, data io.Reader) (status int, body []byte) {
 	log := log.WithFields(logrus.Fields{
-		"base":     cfg.ApiBase,
+		"base":     cfg.APIBase,
 		"username": cfg.Username,
 		"method":   method,
 		"path":     path,
 	})
 	log.Trace("Executing Graylog API call")
 	client := &http.Client{}
-	request, err := http.NewRequest(method, fmt.Sprintf("%s/%s", cfg.ApiBase, path), data)
+	request, err := http.NewRequest(method, fmt.Sprintf("%s/%s", cfg.APIBase, path), data)
 	if err != nil {
 		log.WithField("error", err).Fatal("Could not create HTTP request")
 	}
@@ -86,22 +86,22 @@ func executeApiCall(cfg GraylogConfig, method string, path string, data io.Reade
 }
 
 // Get the list of Graylog users that have been imported from LDAP
-func getGraylogUsers(configuration GraylogConfig) (users []GraylogUser) {
+func getGraylogUsers(configuration graylogConfig) (users []graylogUser) {
 	log.Trace("Getting users from the Graylog API")
-	status, body := executeApiCall(configuration, "GET", "users", nil)
+	status, body := executeAPICall(configuration, "GET", "users", nil)
 	if status != 200 {
 		log.WithField("status", status).Fatal("Could not read users")
 	}
 
-	data := GlUsers{}
+	data := graylogUsers{}
 	if err := json.Unmarshal(body, &data); err != nil {
 		log.WithField("error", err).Fatal("Could not parse Graylog's user list")
 	}
 
-	users = make([]GraylogUser, 0)
+	users = make([]graylogUser, 0)
 	for _, item := range data.Users {
 		if item.External {
-			users = append(users, item.GraylogUser)
+			users = append(users, item.graylogUser)
 		}
 	}
 	log.WithField("users", len(users)).Info("Obtained users from the Graylog API")
@@ -109,7 +109,7 @@ func getGraylogUsers(configuration GraylogConfig) (users []GraylogUser) {
 }
 
 // List groups an user is a member of.
-func getUserGroups(user string, membership GroupMembers) (groups []string) {
+func getUserGroups(user string, membership ldapGroupMembers) (groups []string) {
 	groups = make([]string, 0)
 	for group, members := range membership {
 		for _, member := range members {
@@ -123,7 +123,7 @@ func getUserGroups(user string, membership GroupMembers) (groups []string) {
 }
 
 // Compute roles that should apply to an user
-func computeRoles(mapping GroupMapping, membership []string) (roles []string) {
+func computeRoles(mapping groupMapping, membership []string) (roles []string) {
 	rset := make(map[string]bool)
 	for _, group := range membership {
 		for _, role := range mapping[group].Roles {
@@ -141,7 +141,7 @@ func computeRoles(mapping GroupMapping, membership []string) (roles []string) {
 }
 
 // Compute privileges on Graylog objects that should be granted to an user
-func computePrivileges(mapping GroupMapping, membership []string) (privileges []string) {
+func computePrivileges(mapping groupMapping, membership []string) (privileges []string) {
 	type privInfo struct {
 		otp, oid string
 		priv     int
@@ -149,7 +149,7 @@ func computePrivileges(mapping GroupMapping, membership []string) (privileges []
 	rset := make(map[string]privInfo)
 	for _, group := range membership {
 		for _, priv := range mapping[group].Privileges {
-			key := fmt.Sprintf("%s:%s", priv.Type, priv.Id)
+			key := fmt.Sprintf("%s:%s", priv.Type, priv.ID)
 			record, ok := rset[key]
 			level := privLevels[priv.Level]
 			if ok && level <= record.priv {
@@ -157,7 +157,7 @@ func computePrivileges(mapping GroupMapping, membership []string) (privileges []
 			}
 			if !ok {
 				record.otp = priv.Type
-				record.oid = priv.Id
+				record.oid = priv.ID
 			}
 			record.priv = level
 			rset[key] = record
@@ -176,10 +176,10 @@ func computePrivileges(mapping GroupMapping, membership []string) (privileges []
 }
 
 // Delete a Graylog user account
-func deleteAccount(cfg GraylogConfig, user string) {
+func deleteAccount(cfg graylogConfig, user string) {
 	log := log.WithField("user", user)
 	log.Warning("Deleting Graylog account")
-	code, body := executeApiCall(cfg, "DELETE", fmt.Sprintf("/users/%s", user), nil)
+	code, body := executeAPICall(cfg, "DELETE", fmt.Sprintf("/users/%s", user), nil)
 	if code != 204 {
 		log.WithFields(logrus.Fields{
 			"status": code,
@@ -207,7 +207,7 @@ func getDifference(a []string, b []string) (diff []string) {
 }
 
 // Set an account's roles and grant it access to Graylog objects
-func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, privileges []string) {
+func setUserPrivileges(cfg graylogConfig, user graylogUser, roles []string, privileges []string) {
 	log := log.WithField("user", user.Username)
 
 	type perms struct {
@@ -219,7 +219,7 @@ func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, priv
 		log.WithField("error", err).Fatal("Unable to generate permissions JSON")
 	}
 	log.WithField("privileges", privileges).Info("Setting permissions")
-	code, body := executeApiCall(cfg, "PUT",
+	code, body := executeAPICall(cfg, "PUT",
 		fmt.Sprintf("users/%s/permissions", user.Username),
 		bytes.NewBuffer(data))
 	if code != 204 {
@@ -233,7 +233,7 @@ func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, priv
 	for _, role := range getDifference(roles, user.Roles) {
 		ep := fmt.Sprintf("roles/%s/members/%s", role, user.Username)
 		log.WithField("role", role).Info("Adding role")
-		code, body := executeApiCall(cfg, "PUT", ep, placeholder)
+		code, body := executeAPICall(cfg, "PUT", ep, placeholder)
 		if code != 204 {
 			log.WithFields(logrus.Fields{
 				"status": code,
@@ -245,7 +245,7 @@ func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, priv
 	for _, role := range getDifference(user.Roles, roles) {
 		ep := fmt.Sprintf("roles/%s/members/%s", role, user.Username)
 		log.WithField("role", role).Info("Removing role")
-		code, body := executeApiCall(cfg, "DELETE", ep, nil)
+		code, body := executeAPICall(cfg, "DELETE", ep, nil)
 		if code != 204 {
 			log.WithFields(logrus.Fields{
 				"status": code,
@@ -257,7 +257,7 @@ func setUserPrivileges(cfg GraylogConfig, user GraylogUser, roles []string, priv
 }
 
 // Apply privilege mappings to the external Graylog users
-func applyMapping(cfg Configuration, users []GraylogUser, groups GroupMembers) {
+func applyMapping(cfg configuration, users []graylogUser, groups ldapGroupMembers) {
 	for _, user := range users {
 		log := log.WithField("user", user.Username)
 		membership := getUserGroups(user.Username, groups)

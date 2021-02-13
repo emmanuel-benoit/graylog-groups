@@ -13,11 +13,11 @@ type (
 	 *                    */
 
 	// LDAP server configuration
-	LdapConfig struct {
-		Host         string
-		Port         uint16
-		Tls          string
-		TlsNoVerify  bool     `yaml:"tls_skip_verify"`
+	ldapConfig struct {
+		Host         string   `yaml:"host"`
+		Port         uint16   `yaml:"port"`
+		TLS          string   `yaml:"tls"`
+		TLSNoVerify  bool     `yaml:"tls_skip_verify"`
 		CaChain      string   `yaml:"cachain"`
 		BindUser     string   `yaml:"bind_user"`
 		BindPassword string   `yaml:"bind_password"`
@@ -26,39 +26,39 @@ type (
 	}
 
 	// Graylog server configuration
-	GraylogConfig struct {
-		ApiBase        string `yaml:"api_base"`
+	graylogConfig struct {
+		APIBase        string `yaml:"api_base"`
 		Username       string
 		Password       string
 		DeleteAccounts bool `yaml:"delete_accounts"`
 	}
 
 	// A Graylog object on which privileges are defined
-	GraylogObject struct {
-		Type  string
-		Id    string
-		Level string
+	graylogObject struct {
+		Type  string `yaml:"type"`
+		ID    string `yaml:"id"`
+		Level string `yaml:"level"`
 	}
 
 	// A mapping from a LDAP group to a set of privileges
-	GroupPrivileges struct {
+	groupPrivileges struct {
 		Roles      []string
-		Privileges []GraylogObject
+		Privileges []graylogObject
 	}
 
 	// All group mappings
-	GroupMapping map[string]GroupPrivileges
+	groupMapping map[string]groupPrivileges
 
 	// The whole configuration
-	Configuration struct {
-		Ldap    LdapConfig
-		Graylog GraylogConfig
-		Mapping GroupMapping
+	configuration struct {
+		LDAP    ldapConfig
+		Graylog graylogConfig
+		Mapping groupMapping
 	}
 )
 
 // Check group/privilege mapping configuration
-func checkPrivMapping(cfg GroupMapping, log *logrus.Entry) {
+func checkPrivMapping(cfg groupMapping, log *logrus.Entry) {
 	for group, info := range cfg {
 		log := log.WithField("group", group)
 		for index, priv := range info.Privileges {
@@ -76,7 +76,7 @@ func checkPrivMapping(cfg GroupMapping, log *logrus.Entry) {
 }
 
 // Load and check the configuration file
-func loadConfiguration(flags cliFlags) (configuration Configuration) {
+func loadConfiguration(flags cliFlags) (cfg configuration) {
 	log := log.WithField("config", flags.cfgFile)
 	log.Trace("Loading configuration")
 	cfgData, err := ioutil.ReadFile(flags.cfgFile)
@@ -84,17 +84,17 @@ func loadConfiguration(flags cliFlags) (configuration Configuration) {
 		log.WithField("error", err).Fatal("Could not load configuration")
 	}
 
-	configuration = Configuration{
-		Ldap: LdapConfig{
+	cfg = configuration{
+		LDAP: ldapConfig{
 			Port: 389,
-			Tls:  "no",
+			TLS:  "no",
 		},
 	}
-	err = yaml.Unmarshal(cfgData, &configuration)
+	err = yaml.Unmarshal(cfgData, &cfg)
 	if err != nil {
 		log.WithField("error", err).Fatal("Could not parse configuration")
 	}
 
-	checkPrivMapping(configuration.Mapping, log)
+	checkPrivMapping(cfg.Mapping, log)
 	return
 }
