@@ -25,6 +25,12 @@ type (
 			External bool
 		}
 	}
+
+	// Privilege information
+	privInfo struct {
+		otp, oid string // Type and identifier of object
+		priv     int    // Privilege level
+	}
 )
 
 var (
@@ -140,12 +146,8 @@ func computeRoles(mapping groupMapping, membership []string) (roles []string) {
 	return
 }
 
-// Compute privileges on Graylog objects that should be granted to an user
-func computePrivileges(mapping groupMapping, membership []string) (privileges []string) {
-	type privInfo struct {
-		otp, oid string
-		priv     int
-	}
+// Compute privilege levels for each Graylog object based on the user's group membership
+func getObjectPrivileges(mapping groupMapping, membership []string) map[string]privInfo {
 	rset := make(map[string]privInfo)
 	for _, group := range membership {
 		for _, priv := range mapping[group].Privileges {
@@ -163,16 +165,20 @@ func computePrivileges(mapping groupMapping, membership []string) (privileges []
 			rset[key] = record
 		}
 	}
+	return rset
+}
 
-	privileges = make([]string, 0)
-	for _, record := range rset {
+// Compute privileges on Graylog objects that should be granted to an user
+func computePrivileges(mapping groupMapping, membership []string) []string {
+	privileges := make([]string, 0)
+	for _, record := range getObjectPrivileges(mapping, membership) {
 		key := fmt.Sprintf("%s:%s", record.otp, privStr[record.priv])
 		for _, p := range graylogPriv[key] {
 			pval := fmt.Sprintf(p, record.oid)
 			privileges = append(privileges, pval)
 		}
 	}
-	return
+	return privileges
 }
 
 // Delete a Graylog user account
