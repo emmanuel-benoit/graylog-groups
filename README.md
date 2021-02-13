@@ -52,8 +52,6 @@ go build
 To Do
 ------
 
-* Proper logging, work in progress:
-  * Sending logs to... well, Graylog... through CLI switches.
 * Document command line flags.
 * Add TLS options (skip checks / specify CA) for the Graylog API.
 * Read object ownership using `grn_permissions` to preserve privileges on users'

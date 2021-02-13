@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	lrh_gl "github.com/gemnasium/logrus-graylog-hook/v3"
 	"github.com/sirupsen/logrus"
 	lrh_wr "github.com/sirupsen/logrus/hooks/writer"
 )
@@ -22,6 +23,8 @@ type (
 		logLevel string
 		// A file to write logs into.
 		logFile string
+		// Graylog server to send logs to (using GELF/UDP). Format is <hostname>:<port>.
+		logGraylog string
 	}
 )
 
@@ -34,10 +37,11 @@ var (
 func parseCommandLine() cliFlags {
 	flags := cliFlags{}
 	flag.StringVar(&flags.cfgFile, "c", "graylog-groups.yml", "Configuration file.")
-	flag.StringVar(&flags.instance, "i", "", "Instance identifier.")
-	flag.BoolVar(&flags.quiet, "q", false, "Quiet mode.")
-	flag.StringVar(&flags.logLevel, "L", "", "Log level.")
-	flag.StringVar(&flags.logFile, "log-file", "", "Log file.")
+	flag.StringVar(&flags.instance, "i", "", "Instance identifier")
+	flag.BoolVar(&flags.quiet, "q", false, "Quiet mode")
+	flag.StringVar(&flags.logLevel, "L", "", "Log level")
+	flag.StringVar(&flags.logFile, "log-file", "", "Log file")
+	flag.StringVar(&flags.logGraylog, "log-graylog", "", "Log to Graylog server (format: <host>:<port>)")
 	flag.Parse()
 	return flags
 }
@@ -93,6 +97,9 @@ func configureLogging(flags cliFlags) {
 	log.Logger.SetLevel(toLogLevel(flags.logLevel))
 	if flags.logFile != "" {
 		configureLogFile(flags.logFile)
+	}
+	if flags.logGraylog != "" {
+		log.Logger.AddHook(lrh_gl.NewGraylogHook(flags.logGraylog, nil))
 	}
 	if flags.quiet {
 		log.Logger.SetOutput(ioutil.Discard)
