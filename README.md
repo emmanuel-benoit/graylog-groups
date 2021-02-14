@@ -49,10 +49,28 @@ go build
 - Set up a cron job or whatever it is you use to schedule tasks to run the
   synchronization binary on a regular basis.
 
+Usage
+------
+
+The program accepts the following command line arguments :
+
+* `-h` / `--help`: displays usage information then exits.
+* `-q` / `--quiet`: quiet mode. This will disable logging to `stderr`.
+* `-c <file>` / `--config <file>`: specifies the configuration file. If this
+  option is not present, the program will try to load a file named
+  `graylog-groups.yml` from the current working directory.
+* `-i <name>` / `--instance <name>`: specifies an instance name that will be
+  added to logs as a field named `instance`.
+* `-L <level>` / `--level <level>`: specifies the log level. It must be one of
+  the following: `trace`, `debug`, `info` (the default), `warn`, `error`,
+  `fatal`, `panic`.
+* `-f <file>` / `--log-file <file>`: appends logs to the specified file.
+* `-g <host>:<port>` / `--log-graylog <host>:<port>`: sends logs to the
+  specified Graylog server using GELF over UDP.
+
 To Do
 ------
 
-* Document command line flags.
 * Add TLS options (skip checks / specify CA) for the Graylog API.
 * Read object ownership using `grn_permissions` to preserve privileges on users'
   own objects
