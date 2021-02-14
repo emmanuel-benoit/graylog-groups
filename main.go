@@ -43,7 +43,7 @@ func parseCommandLine() cliFlags {
 	golf.StringVarP(&flags.logGraylog, 'g', "log-graylog", "", "Log to Graylog server (format: <host>:<port>).")
 	golf.BoolVarP(&help, 'h', "help", false, "Display command line help and exit.")
 	golf.StringVarP(&flags.instance, 'i', "instance", "", "Specify an instance identifier.")
-	golf.StringVarP(&flags.logLevel, 'L', "log-level", "INFO", "Log level to use.")
+	golf.StringVarP(&flags.logLevel, 'L', "log-level", "info", "Log level to use.")
 	golf.BoolVarP(&flags.quiet, 'q', "quiet", false, "Quiet mode; prevents logging to stderr.")
 
 	golf.Parse()
