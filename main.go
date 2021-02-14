@@ -1,11 +1,11 @@
 package main
 
 import (
-	"flag"
 	"io/ioutil"
 	"os"
 
 	lrh_gl "github.com/gemnasium/logrus-graylog-hook/v3"
+	"github.com/karrick/golf"
 	"github.com/sirupsen/logrus"
 	lrh_wr "github.com/sirupsen/logrus/hooks/writer"
 )
@@ -35,14 +35,22 @@ var (
 
 // Parse command line options.
 func parseCommandLine() cliFlags {
+	var help bool
 	flags := cliFlags{}
-	flag.StringVar(&flags.cfgFile, "c", "graylog-groups.yml", "Configuration file.")
-	flag.StringVar(&flags.instance, "i", "", "Instance identifier")
-	flag.BoolVar(&flags.quiet, "q", false, "Quiet mode")
-	flag.StringVar(&flags.logLevel, "L", "", "Log level")
-	flag.StringVar(&flags.logFile, "log-file", "", "Log file")
-	flag.StringVar(&flags.logGraylog, "log-graylog", "", "Log to Graylog server (format: <host>:<port>)")
-	flag.Parse()
+
+	golf.StringVarP(&flags.cfgFile, 'c', "config", "./graylog-groups.yml", "Set the configuration file.")
+	golf.StringVarP(&flags.logFile, 'f', "log-file", "", "Log file.")
+	golf.StringVarP(&flags.logGraylog, 'g', "log-graylog", "", "Log to Graylog server (format: <host>:<port>).")
+	golf.BoolVarP(&help, 'h', "help", false, "Display command line help and exit.")
+	golf.StringVarP(&flags.instance, 'i', "instance", "", "Specify an instance identifier.")
+	golf.StringVarP(&flags.logLevel, 'L', "log-level", "INFO", "Log level to use.")
+	golf.BoolVarP(&flags.quiet, 'q', "quiet", false, "Quiet mode; prevents logging to stderr.")
+
+	golf.Parse()
+	if help {
+		golf.Usage()
+		os.Exit(0)
+	}
 	return flags
 }
 
