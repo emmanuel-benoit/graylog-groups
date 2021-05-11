@@ -34,6 +34,10 @@ will read its configuration file, and from there :
 * set the users' permissions on the various Graylog objects,
 * add or remove Graylog roles from user accounts.
 
+It should be noted that permissions set by this tool to not appear anywhere on
+the Graylog 4 UI. They can be queried back using the API, using the
+`/user/{login}` endpoint.
+
 Installing
 -----------
 
