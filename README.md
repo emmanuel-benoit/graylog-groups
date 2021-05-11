@@ -11,8 +11,8 @@ Why?
 -----
 
 The community edition of [Graylog](https://graylog.org) had the ability to use
-LDAP group in order to control user access to the various objects (streams and
-dashboards).
+LDAP group in order to control user access to the various objects (searches,
+streams and dashboards).
 
 In a somewhat ethically questionable move this capability was removed in version
 4.0 and replaced with an enterprise-only feature called teams.

@@ -46,6 +46,7 @@ var (
 	// Graylog items on which privileges may be set
 	graylogItems = map[string]bool{
 		"dashboard": true,
+		"search":    true,
 		"stream":    true,
 	}
 
@@ -53,6 +54,8 @@ var (
 	graylogPriv = map[string][]string{
 		"dashboard:read":  {"dashboards:read:%s", "view:read:%s"},
 		"dashboard:write": {"dashboards:read:%s", "dashboards:edit:%s", "view:read:%s", "view:edit:%s"},
+		"search:read":     {"view:read:%s"},
+		"search:write":    {"view:read:%s", "view:edit:%s"},
 		"stream:read":     {"streams:read:%s"},
 		"stream:write":    {"streams:read:%s", "streams:edit:%s", "streams:changestate:%s"},
 	}
